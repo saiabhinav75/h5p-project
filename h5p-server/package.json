@@ -1,0 +1,20 @@
+{
+  "name": "h5p-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@lumieducation/h5p-express": "^10.0.4",
+    "@lumieducation/h5p-server": "^10.0.4",
+    "body-parser": "^2.2.1",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "express-fileupload": "^1.5.2"
+  }
+}

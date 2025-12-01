@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mock Mobile App (WebView Host)</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
+        .phone-container {
+            width: 375px;
+            height: 667px;
+            border: 10px solid #333;
+            border-radius: 20px;
+            background: white;
+            margin: 0 auto;
+            overflow: hidden;
+            position: relative;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        #log {
+            margin-top: 20px;
+            padding: 10px;
+            background: #fff;
+            border: 1px solid #ccc;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+        }
+        .log-entry { margin-bottom: 5px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .log-label { font-weight: bold; color: #0066cc; }
+    </style>
+</head>
+<body>
+
+    <h2 style="text-align: center">Mock React Native App</h2>
+    
+    <div class="phone-container">
+        <!-- This iframe acts as the React Native WebView. Served from SAME ORIGIN so we can inject. -->
+        <iframe id="webview" src="/play/1"></iframe>
+    </div>
+
+    <div id="log">
+        <div class="log-entry">System: Waiting for xAPI events...</div>
+    </div>
+
+    <script>
+        const logDiv = document.getElementById('log');
+
+        function log(label, data) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-label">${label}:</span> ${typeof data === 'object' ? JSON.stringify(data, null, 2) : data}`;
+            logDiv.insertBefore(entry, logDiv.firstChild);
+        }
+
+        const iframe = document.getElementById('webview');
+        
+        iframe.onload = function() {
+            log('System', 'WebView Loaded');
+            
+            try {
+                const iframeWin = iframe.contentWindow;
+                
+                // MOCK BRIDGE
+                // In React Native, this object is injected natively.
+                iframeWin.ReactNativeWebView = {
+                    postMessage: function(data) {
+                        log('Received from Bridge', JSON.parse(data));
+                    }
+                };
+                log('System', 'Bridge Injected Successfully!');
+            } catch (e) {
+                log('Error', 'Could not inject bridge: ' + e.message);
+            }
+        };
+    </script>
+</body>
+</html>
