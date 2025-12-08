@@ -80,14 +80,34 @@ app.post('/upload', async (req, res) => {
         // We need a user object (dummy for now)
         const user = { id: '1', name: 'Admin', canCreate: true, canUpdate: true };
         
-        // Read the temp file into a buffer manually to avoid compatibility issues
-        const buffer = fs.readFileSync(req.files.h5p_file.tempFilePath);
-        console.log('Buffer length:', buffer.length);
+        console.log('Processing upload from path:', req.files.h5p_file.tempFilePath);
 
-        // We process the upload. This unzips the .h5p, installs libraries, and saves content.
-        const contentId = await h5pEditor.uploadPackage(
-            undefined, // New content
-            buffer, 
+        // We process the upload. This unzips the .h5p, installs libraries, and extracts metadata.
+        // We pass the file path directly to handle large files efficiently.
+        const { metadata, parameters } = await h5pEditor.uploadPackage(
+            req.files.h5p_file.tempFilePath,
+            user
+        );
+        
+        // Construct the full ubername (e.g., "H5P.DragQuestion 1.14")
+        // metadata.mainLibrary is just the name (e.g. "H5P.DragQuestion"), but we need "Name Major.Minor"
+        const mainLibDep = metadata.preloadedDependencies.find(
+            dep => dep.machineName === metadata.mainLibrary
+        );
+        
+        if (!mainLibDep) {
+             throw new Error(`Main library "${metadata.mainLibrary}" not found in preloaded dependencies.`);
+        }
+        
+        const mainLibraryUbername = `${mainLibDep.machineName} ${mainLibDep.majorVersion}.${mainLibDep.minorVersion}`;
+        console.log('Main Library Ubername:', mainLibraryUbername);
+
+        // Save the content to generate a Content ID
+        const contentId = await h5pEditor.saveOrUpdateContent(
+            undefined, // undefined = Create new content
+            parameters,
+            metadata,
+            mainLibraryUbername,
             user
         );
         
@@ -108,7 +128,6 @@ app.get('/play/:contentId', async (req, res) => {
         // Generate the model (the big JSON object)
         // Correct signature: render(contentId, language, user)
         const playerModel = await h5pPlayer.render(contentId, 'en', user);
-        console.log('Player Model:', JSON.stringify(playerModel, null, 2)); // Debug log
         
         // We inject the "PostMessage Bridge" script here
         const bridgeScript = `
@@ -116,7 +135,6 @@ app.get('/play/:contentId', async (req, res) => {
                 // Wait for H5P to be ready
                 (function() {
                     H5P.externalDispatcher.on('xAPI', function (event) {
-                        console.log("xAPI Event detected", event.data.statement);
                         
                         // BRIDGE: Send to React Native
                         if (window.ReactNativeWebView) {
@@ -166,6 +184,11 @@ app.get('/play/:contentId', async (req, res) => {
 // Serve Mock Mobile Client
 app.get('/mock', (req, res) => {
     res.sendFile(path.resolve(__dirname, '../mock-mobile.html'));
+});
+
+// Upload h5p file
+app.get('/upload-file-ui', (req, res) => {
+    res.sendFile(path.resolve(__dirname, '../upload.html'));
 });
 
 app.listen(PORT, () => {

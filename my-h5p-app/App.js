@@ -15,7 +15,7 @@ export default function App() {
 
   const handleMessage = (event) => {
     try {
-      console.log(event.nativeEvent.data)
+      console.log("event data",event.nativeEvent.data)
       const data = JSON.parse(event.nativeEvent.data);
       // console.log("Received from WebView:\n", data);
       
