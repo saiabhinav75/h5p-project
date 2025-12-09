@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, StatusBar, Platform } from 'react-native';
+import React, { useState,useEffect } from 'react';
+import { StyleSheet, View, Text, StatusBar, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
-
+import { SafeAreaView } from 'react-native-safe-area-context';
 // CHANGE THIS TO YOUR SERVER URL
 // For Android Emulator use 'http://10.0.2.2:3000'
 // For iOS Simulator use 'http://localhost:3000'
 // For Physical Device use your machine's IP e.g., 'http://192.168.1.50:3000'
 const H5P_SERVER_URL = Platform.OS === 'android' 
-  ? 'http://10.0.2.2:3000/play/1' 
-  : 'http://localhost:3000/play/1';
+  ? 'http://10.0.2.2:3000/play/1007879370' 
+  : 'http://localhost:3000/play/1007879370';
 
 export default function App() {
   const [lastEvent, setLastEvent] = useState(null);
@@ -27,6 +27,15 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      // Add event listener for messages from WebView
+      window.addEventListener('message', handleMessage);
+      return () => window.removeEventListener('message', handleMessage);
+    }
+  }, []);
+
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -35,7 +44,8 @@ export default function App() {
       </View>
       
       <View style={styles.webviewContainer}>
-        <WebView 
+        {Platform.OS === 'web' ? <iframe src={H5P_SERVER_URL} style={{ flex: 1 }} /> : (
+          <WebView 
           source={{ uri: H5P_SERVER_URL }}
           onMessage={handleMessage}
           style={{ flex: 1 }}
@@ -46,6 +56,7 @@ export default function App() {
             console.warn('WebView error: ', nativeEvent);
           }}
         />
+        )}
       </View>
 
       <View style={styles.logContainer}>

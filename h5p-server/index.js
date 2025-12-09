@@ -1,155 +1,223 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const cors = require('cors');
-const path = require('path');
-const fs = require('fs'); // Added fs requirement
-const {
-    H5PEditor,
-    H5PConfig,
-    H5PPlayer,
-    fsImplementations
-} = require('@lumieducation/h5p-server');
-const { h5pAjaxExpressRouter } = require('@lumieducation/h5p-express');
+import express from "express";
+import cors from "cors";
+import path from "path";
+import fs from "fs";
+import multer from "multer";
+import { exec } from "child_process";
+
+import {
+  H5PEditor,
+  H5PConfig,
+  H5PPlayer,
+  fsImplementations
+} from "@lumieducation/h5p-server";
+import { h5pAjaxExpressRouter } from "@lumieducation/h5p-express";
 
 const app = express();
 const PORT = 3000;
 
 app.use(cors());
-app.use(bodyParser.json({ limit: '500mb' }));
-app.use(bodyParser.urlencoded({ extended: true, limit: '500mb' }));
 
-// 1. Configuration: Paths for local storage
-const localH5PPath = path.resolve('h5p-storage');
-
-// Ensure directories exist (in a real app, you'd create them programmatically or manually)
-// For this demo, the library handles creation if permissions allow.
-
-const config = new H5PConfig(new fsImplementations.JsonStorage(path.resolve(localH5PPath, 'h5p-settings.json')));
-const libraryStorage = new fsImplementations.FileLibraryStorage(path.resolve(localH5PPath, 'libraries'));
-const contentStorage = new fsImplementations.FileContentStorage(path.resolve(localH5PPath, 'content'));
-const temporaryStorage = new fsImplementations.DirectoryTemporaryFileStorage(path.resolve(localH5PPath, 'temp'));
-
-// 2. Initialize H5P Server components
-// We need an Editor (to upload/manage) and a Player (to render)
-const h5pEditor = new H5PEditor(
-    new fsImplementations.JsonStorage(path.resolve(localH5PPath, 'h5p-config.json')), // Config storage
-    config,
-    libraryStorage,
-    contentStorage,
-    temporaryStorage
-);
-
-// Initialize H5P Player for rendering content
-const h5pPlayer = new H5PPlayer(
-    libraryStorage,
-    contentStorage,
-    config
-);
-
-// OVERRIDE RENDERER to return the data model instead of HTML string
-h5pPlayer.setRenderer((model) => model);
-
-// 3. Standard H5P Routes (for accessing libraries/files)
-// This helper connects the H5P internals to Express routes
-const h5pAdapter = h5pAjaxExpressRouter(
-    h5pEditor,
-    path.resolve('h5p-core'),
-    path.resolve('h5p-editor')
-);
-
-// Serve static files from the H5P storage (Libraries, Content files, etc.)
-app.use('/h5p', h5pAdapter);
-
-// 4. Content Ingestion Endpoint (Simple "Upload" Simulation)
-// We will use this to "install" our .h5p file later.
-const fileUpload = require('express-fileupload');
-app.use(fileUpload({
-    useTempFiles: true,
-    tempFileDir: path.join(__dirname, 'tmp_uploads')
-}));
-
-app.post('/upload', async (req, res) => {
-    if (!req.files || !req.files.h5p_file) {
-        return res.status(400).send('No file uploaded.');
-    }
-    
-    try {
-        console.log('Received file size:', req.files.h5p_file.size);
-        
-        // The library expects a path or buffer. Let's use the buffer.
-        // We need a user object (dummy for now)
-        const user = { id: '1', name: 'Admin', canCreate: true, canUpdate: true };
-        
-        console.log('Processing upload from path:', req.files.h5p_file.tempFilePath);
-
-        // We process the upload. This unzips the .h5p, installs libraries, and extracts metadata.
-        // We pass the file path directly to handle large files efficiently.
-        const { metadata, parameters } = await h5pEditor.uploadPackage(
-            req.files.h5p_file.tempFilePath,
-            user
-        );
-        
-        // Construct the full ubername (e.g., "H5P.DragQuestion 1.14")
-        // metadata.mainLibrary is just the name (e.g. "H5P.DragQuestion"), but we need "Name Major.Minor"
-        const mainLibDep = metadata.preloadedDependencies.find(
-            dep => dep.machineName === metadata.mainLibrary
-        );
-        
-        if (!mainLibDep) {
-             throw new Error(`Main library "${metadata.mainLibrary}" not found in preloaded dependencies.`);
-        }
-        
-        const mainLibraryUbername = `${mainLibDep.machineName} ${mainLibDep.majorVersion}.${mainLibDep.minorVersion}`;
-        console.log('Main Library Ubername:', mainLibraryUbername);
-
-        // Save the content to generate a Content ID
-        const contentId = await h5pEditor.saveOrUpdateContent(
-            undefined, // undefined = Create new content
-            parameters,
-            metadata,
-            mainLibraryUbername,
-            user
-        );
-        
-        res.json({ success: true, contentId });
-    } catch (error) {
-        console.error(error);
-        res.status(500).send(error.message);
-    }
+const upload = multer({
+  dest: "uploads/",
+  limits: { fileSize: 1024 * 1024 * 1024 } // 1GB max
 });
 
-// 5. The "Player" HTML Endpoint
-// This is what the mobile app will load.
+// ----------------------------------------------
+// 3. H5P STORAGE CONFIG
+// ----------------------------------------------
+const localH5PPath = path.resolve("h5p-storage");
+const __dirname = path.resolve();
+const config = new H5PConfig(
+  new fsImplementations.JsonStorage(
+    path.resolve(localH5PPath, "h5p-settings.json")
+  )
+);
+
+
+const libraryStorage = new fsImplementations.FileLibraryStorage(
+  path.resolve(localH5PPath, "libraries")
+);
+
+const contentStorage = new fsImplementations.FileContentStorage(
+  path.resolve(localH5PPath, "content")
+);
+
+const temporaryStorage = new fsImplementations.DirectoryTemporaryFileStorage(
+  path.resolve(localH5PPath, "temp")
+);
+
+// ----------------------------------------------
+// 4. H5P Editor & Player
+// ----------------------------------------------
+const h5pEditor = new H5PEditor(
+  new fsImplementations.JsonStorage(
+    path.resolve(localH5PPath, "h5p-config.json")
+  ),
+  config,
+  libraryStorage,
+  contentStorage,
+  temporaryStorage
+);
+
+const h5pPlayer = new H5PPlayer(libraryStorage, contentStorage, config);
+h5pPlayer.setRenderer(model => model);
+
+// H5P Express Adapter
+const h5pAdapter = h5pAjaxExpressRouter(
+  h5pEditor,
+  path.resolve("h5p-core"),
+  path.resolve("h5p-editor")
+);
+
+app.use("/h5p", h5pAdapter);
+
+// ----------------------------------------------
+// 5. UNZIP FUNCTION
+// ----------------------------------------------
+function unzipH5P(filePath) {
+  return new Promise((resolve, reject) => {
+    const outputDir = path.join(
+      process.cwd(),
+      "extracted",
+      path.basename(filePath).replace(".h5p", "")
+    );
+
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const cmd = `unzip "${filePath}" -d "${outputDir}"`;
+
+    exec(cmd, err => {
+      if (err) return reject(err);
+      resolve(outputDir);
+    });
+  });
+}
+
+// ----------------------------------------------
+// 6. FINAL UPLOAD ROUTE (WORKING)
+// ----------------------------------------------
+app.post("/upload", upload.single("h5p_file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).send("No file uploaded");
+    }
+
+    const user = { id: "1", name: "Admin" };
+
+    console.log("Uploaded file:", req.file.path);
+
+    // 1️⃣ Unzip H5P file
+    const extractedDir = await unzipH5P(req.file.path);
+    console.log("Extracted to:", extractedDir);
+
+    // 2️⃣ READ metadata (h5p.json)
+    const metadataPath = path.join(extractedDir, "h5p.json");
+    if (!fs.existsSync(metadataPath)) {
+      throw new Error("h5p.json not found inside extracted folder");
+    }
+    const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf-8"));
+
+    // 3️⃣ READ parameters (content/content.json)
+    const paramsPath = path.join(extractedDir, "content", "content.json");
+
+    let parameters = {};
+    if (fs.existsSync(paramsPath)) {
+      parameters = JSON.parse(fs.readFileSync(paramsPath, "utf-8"));
+    }
+
+    // 4️⃣ READ ALL library.json files
+    const librariesDir = path.join(extractedDir, "libraries");
+    let libraries = {};
+
+    if (fs.existsSync(librariesDir)) {
+      const libFolders = fs.readdirSync(librariesDir);
+
+      for (const folder of libFolders) {
+        const libPath = path.join(librariesDir, folder, "library.json");
+        if (fs.existsSync(libPath)) {
+          libraries[folder] = JSON.parse(fs.readFileSync(libPath, "utf-8"));
+        }
+      }
+    }
+
+    const mainLibDep = metadata.preloadedDependencies.find(
+      dep => dep.machineName === metadata.mainLibrary
+    );
+
+    if (!mainLibDep) {
+      throw new Error(`Main library "${metadata.mainLibrary}" not found in preloaded dependencies.`);
+    }
+
+    const mainLibraryUbername = `${mainLibDep.machineName} ${mainLibDep.majorVersion}.${mainLibDep.minorVersion}`;
+    console.log('Main Library Ubername:', mainLibraryUbername);
+
+    const contentId = await h5pEditor.saveOrUpdateContent(
+      undefined, // undefined = Create new content
+      parameters,
+      metadata,
+      mainLibraryUbername,
+      user
+    );
+
+    console.log('Generated Content ID:', contentId);
+
+    // 5️⃣ Return everything to client
+    res.json({
+      success: true,
+      extractedPath: extractedDir,
+      metadata,
+      parameters,
+      libraries
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send(err.message);
+  }
+});
+
+
+
 app.get('/play/:contentId', async (req, res) => {
-    try {
-        const contentId = req.params.contentId;
-        const user = { id: '1', name: 'Admin', email: 'admin@example.com' };
-        
-        // Generate the model (the big JSON object)
-        // Correct signature: render(contentId, language, user)
-        const playerModel = await h5pPlayer.render(contentId, 'en', user);
-        
-        // We inject the "PostMessage Bridge" script here
-        const bridgeScript = `
+  try {
+    const contentId = req.params.contentId;
+    const user = { id: '1', name: 'Admin', email: 'admin@example.com' };
+
+    // Generate the model (the big JSON object)
+    // Correct signature: render(contentId, language, user)
+    const playerModel = await h5pPlayer.render(contentId, 'en', user);
+
+    // We inject the "PostMessage Bridge" script here
+    const bridgeScript = `
             <script>
                 // Wait for H5P to be ready
                 (function() {
                     H5P.externalDispatcher.on('xAPI', function (event) {
                         
-                        // BRIDGE: Send to React Native
-                        if (window.ReactNativeWebView) {
-                            window.ReactNativeWebView.postMessage(JSON.stringify({
-                                type: 'xAPI',
-                                data: event.data.statement
-                            }));
-                        }
+                        // Prepare message
+                    const payload = JSON.stringify({
+                        type: "xAPI",
+                        data: event.data.statement
+                    });
+
+                    // For React Native WebView (Android + iOS)
+                    if (window.ReactNativeWebView) {
+                        window.ReactNativeWebView.postMessage(payload);
+                    }
+
+                    // For Web (iframe → parent window)
+                    if (window.parent && window.parent !== window) {
+                        window.parent.postMessage(payload, "*");
+                    }
+                            
                     });
                 })();
             </script>
         `;
 
-        // Basic HTML Template
-        const html = `
+    // Basic HTML Template
+    const html = `
             <!doctype html>
             <html>
             <head>
@@ -173,24 +241,26 @@ app.get('/play/:contentId', async (req, res) => {
             </body>
             </html>
         `;
-        
-        res.send(html);
-    } catch (error) {
-        console.error(error);
-        res.status(500).send('Error rendering content: ' + error.message);
-    }
+
+    res.send(html);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Error rendering content: ' + error.message);
+  }
 });
+
 
 // Serve Mock Mobile Client
 app.get('/mock', (req, res) => {
-    res.sendFile(path.resolve(__dirname, '../mock-mobile.html'));
+  res.sendFile(path.resolve(__dirname, '../mock-mobile.html'));
 });
 
 // Upload h5p file
 app.get('/upload-file-ui', (req, res) => {
-    res.sendFile(path.resolve(__dirname, '../upload.html'));
+  res.sendFile(path.resolve(__dirname, '../upload.html'));
 });
 
+
 app.listen(PORT, () => {
-    console.log(`H5P Server running on http://localhost:${PORT}`);
+  console.log(`H5P Server running on http://localhost:${PORT}`);
 });
