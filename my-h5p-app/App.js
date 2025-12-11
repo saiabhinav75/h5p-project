@@ -7,8 +7,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 // For iOS Simulator use 'http://localhost:3000'
 // For Physical Device use your machine's IP e.g., 'http://192.168.1.50:3000'
 const H5P_SERVER_URL = Platform.OS === 'android' 
-  ? 'http://10.0.2.2:3000/play/1007879370' 
-  : 'http://localhost:3000/play/1007879370';
+  ? 'http://10.0.2.2:3000/play/1381340436' 
+  : 'http://localhost:3000/play/1381340436';
 
 export default function App() {
   const [lastEvent, setLastEvent] = useState(null);
