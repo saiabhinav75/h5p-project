@@ -5,5 +5,7 @@ node_modules/
 h5p-server/tmp_uploads/
 h5p-server/h5p-storage/temp/
 h5p-server/uploads/
+h5p-server/h5p-storage/content/
+h5p-server/exracted/
 
 *.mp4
