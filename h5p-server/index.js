@@ -77,10 +77,8 @@ app.use("/h5p", h5pAdapter);
 
 // ----------------------------------------------
 // 5. UNZIP FUNCTION
-// ----------------------------------------------
-// ----------------------------------------------
-// 5. UNZIP FUNCTION (SUPPORT BOTH H5P FORMATS)
-// ----------------------------------------------
+// ---------------------------------------------- 
+
 function unzipH5P(filePath) {
   return new Promise((resolve, reject) => {
     const outputDir = path.join(
