@@ -95,106 +95,10 @@ function unzipH5P(filePath) {
 
     exec(cmd, (err) => {
       if (err) return reject(err);
-
-      const destLibDir = path.join("h5p-storage", "libraries");
-      fs.mkdirSync(destLibDir, { recursive: true });
-
-      // -----------------------------------------
-      // CASE 1: Classic /libraries folder
-      // -----------------------------------------
-      const srcLibDir = path.join(outputDir, "libraries");
-
-      if (fs.existsSync(srcLibDir)) {
-        console.log("📁 Found classic /libraries folder inside H5P");
-        installLibraryFolders(srcLibDir, destLibDir);
-      } 
-      else {
-        // -----------------------------------------
-        // CASE 2: Library folders in ROOT
-        // -----------------------------------------
-        console.log("📁 No /libraries folder → scanning root for library folders...");
-
-        const rootItems = fs.readdirSync(outputDir);
-
-        rootItems.forEach((item) => {
-          const fullPath = path.join(outputDir, item);
-
-          // Detect folders like: H5P.Video-1.6 , H5P.InteractiveVideo-1.27
-          if (
-            fs.lstatSync(fullPath).isDirectory() &&
-            /^H5P\..+-\d+\.\d+$/.test(item)
-          ) {
-            installSingleLibrary(fullPath, destLibDir, item);
-          }
-        });
-      }
-
       resolve(outputDir);
     });
   });
 }
-
-// ----------------------------------------------
-// Install all library folders inside /libraries
-// ----------------------------------------------
-function installLibraryFolders(src, dest) {
-  const folders = fs.readdirSync(src);
-
-  folders.forEach((folder) => {
-    const from = path.join(src, folder);
-    const to = path.join(dest, folder);
-
-    installSingleLibrary(from, dest, folder);
-  });
-}
-
-// ----------------------------------------------
-// Install a single H5P library (with version check)
-// ----------------------------------------------
-function installSingleLibrary(from, destBase, folderName) {
-  const to = path.join(destBase, folderName);
-  const libJsonPath = path.join(from, "library.json");
-
-  if (!fs.existsSync(libJsonPath)) {
-    console.log(`⚠ Skipping (no library.json): ${folderName}`);
-    return;
-  }
-
-  const newLib = JSON.parse(fs.readFileSync(libJsonPath, "utf8"));
-  const newVersion = `${newLib.majorVersion}.${newLib.minorVersion}`;
-
-  // If library does NOT exist → install
-  if (!fs.existsSync(to)) {
-    fs.cpSync(from, to, { recursive: true });
-    console.log(`📦 Installed NEW library: ${folderName} (v${newVersion})`);
-    return;
-  }
-
-  // If library exists → compare version
-  const existingLib = JSON.parse(
-    fs.readFileSync(path.join(to, "library.json"), "utf8")
-  );
-  const existingVersion = `${existingLib.majorVersion}.${existingLib.minorVersion}`;
-
-  const [newMaj, newMin] = newVersion.split(".").map(Number);
-  const [oldMaj, oldMin] = existingVersion.split(".").map(Number);
-
-  const isNewer =
-    newMaj > oldMaj || (newMaj === oldMaj && newMin > oldMin);
-
-  if (isNewer) {
-    fs.rmSync(to, { recursive: true, force: true });
-    fs.cpSync(from, to, { recursive: true });
-    console.log(
-      `🔄 Updated library: ${folderName} (v${existingVersion} → v${newVersion})`
-    );
-  } else {
-    console.log(
-      `✔ Library up-to-date: ${folderName} (v${existingVersion})`
-    );
-  }
-}
-
 
 // ----------------------------------------------
 // 6. FINAL UPLOAD ROUTE (WORKING)
