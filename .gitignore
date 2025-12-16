@@ -9,5 +9,5 @@ h5p-server/h5p-storage/content/
 h5p-server/extracted/
 h5p-server/h5p-storage/libraries/
 h5p-server/h5p-storage/temp
-
+h5p-server/h5p-storage/libraries
 *.mp4
