@@ -183,80 +183,382 @@ app.post("/upload", upload.single("h5p_file"), async (req, res) => {
 
 
 
+// app.get('/play/:contentId', async (req, res) => {
+//   try {
+//     const contentId = req.params.contentId;
+//     const user = { id: '1', name: 'Admin', email: 'admin@example.com' };
+
+//     // Generate the model (the big JSON object)
+//     // Correct signature: render(contentId, language, user)
+//     const playerModel = await h5pPlayer.render(contentId, 'en', user);
+
+//     // We inject the "PostMessage Bridge" script here
+//     const bridgeScript = `
+//             <script>
+//                 // Wait for H5P to be ready
+//                 (function() {
+//                     H5P.externalDispatcher.on('xAPI', function (event) {
+                        
+//                         // Prepare message
+//                     const payload = JSON.stringify({
+//                         type: "xAPI",
+//                         data: event.data.statement
+//                     });
+
+//                     // For React Native WebView (Android + iOS)
+//                     if (window.ReactNativeWebView) {
+//                         window.ReactNativeWebView.postMessage(payload);
+//                     }
+
+//                     // For Web (iframe → parent window)
+//                     if (window.parent && window.parent !== window) {
+//                         window.parent.postMessage(payload, "*");
+//                     }
+                            
+//                     });
+//                 })();
+//             </script>
+//         `;
+
+//     // Basic HTML Template
+//     const html = `
+//             <!doctype html>
+//             <html>
+//             <head>
+//                 <meta charset="utf-8">
+//                 <meta name="viewport" content="width=device-width, initial-scale=1">
+//                 <title>H5P Player</title>
+//                 <script src="https://code.jquery.com/jquery-1.12.4.min.js"></script>
+
+                
+//                 <!-- H5P Core Scripts & Styles -->
+//                 ${(playerModel.styles || []).map(s => `<link rel="stylesheet" href="${s}">`).join('\n')}
+//                 ${(playerModel.scripts || []).map(s => `<script src="${s}"></script>`).join('\n')}
+//             </head>
+//             <body>
+//                 <div class="h5p-content" data-content-id="${contentId}"></div>
+                
+//                 <script>
+//                     // H5P Integration Object
+//                     window.H5PIntegration = ${JSON.stringify(playerModel.integration, null, 2)};
+//                 </script>
+                
+//                 ${bridgeScript}
+//             </body>
+//             </html>
+//         `;
+
+//     res.send(html);
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).send('Error rendering content: ' + error.message);
+//   }
+// });
+
+
+// Serve Mock Mobile Client
+
 app.get('/play/:contentId', async (req, res) => {
   try {
     const contentId = req.params.contentId;
     const user = { id: '1', name: 'Admin', email: 'admin@example.com' };
 
-    // Generate the model (the big JSON object)
-    // Correct signature: render(contentId, language, user)
     const playerModel = await h5pPlayer.render(contentId, 'en', user);
 
-    // We inject the "PostMessage Bridge" script here
+    // Configure integration for user mode
+    if (playerModel.integration) {
+      playerModel.integration.user = {
+        name: user.name,
+        mail: user.email,
+        id: user.id
+      };
+
+      if (playerModel.integration.contents && playerModel.integration.contents[`cid-${contentId}`]) {
+        const content = playerModel.integration.contents[`cid-${contentId}`];
+        content.disable = 0;
+        content.displayOptions = {
+          frame: true,
+          export: false,
+          embed: false,
+          copyright: false,
+          icon: false,
+          copy: false
+        };
+        delete content.preview;
+      }
+
+      playerModel.integration.saveFreq = false;
+      playerModel.integration.postUserStatistics = true;
+      playerModel.integration.ajax = playerModel.integration.ajax || {};
+      playerModel.integration.ajax.setFinished = '/h5p/setFinished';
+      playerModel.integration.ajax.contentUserData = '/h5p/contentUserData';
+    }
+
+    // ENHANCED tracking script with DOM mutation observer
     const bridgeScript = `
-            <script>
-                // Wait for H5P to be ready
-                (function() {
-                    H5P.externalDispatcher.on('xAPI', function (event) {
-                        
-                        // Prepare message
-                    const payload = JSON.stringify({
-                        type: "xAPI",
-                        data: event.data.statement
+      <script>
+        (function() {
+          console.log('%c 🚀 H5P Enhanced Event Bridge Starting...', 'color: blue; font-weight: bold; font-size: 14px;');
+          
+          // Track all interactions
+          let interactionCount = 0;
+          
+          // Function to send messages to frontend
+          function sendMessage(type, data) {
+            const payload = JSON.stringify({ type, data });
+            
+            // For React Native WebView
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(payload);
+            }
+            
+            // For Web iframe
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage(payload, "*");
+            }
+            
+            console.log('%c 📤 ' + type, 'color: green; font-weight: bold;', data);
+          }
+          
+          // Track video progress
+          let lastProgressUpdate = 0;
+          let videoElement = null;
+          
+          function setupVideoTracking() {
+            const findVideo = setInterval(() => {
+              videoElement = document.querySelector('video');
+              if (videoElement) {
+                clearInterval(findVideo);
+                console.log('%c 🎬 Video element found!', 'color: purple; font-weight: bold;');
+                
+                videoElement.addEventListener('play', () => {
+                  sendMessage('video-play', { 
+                    currentTime: videoElement.currentTime,
+                    timestamp: Date.now()
+                  });
+                });
+                
+                videoElement.addEventListener('pause', () => {
+                  sendMessage('video-pause', { 
+                    currentTime: videoElement.currentTime,
+                    timestamp: Date.now()
+                  });
+                });
+                
+                videoElement.addEventListener('ended', () => {
+                  sendMessage('video-ended', { 
+                    duration: videoElement.duration,
+                    timestamp: Date.now()
+                  });
+                });
+                
+                videoElement.addEventListener('timeupdate', () => {
+                  const currentTime = Math.floor(videoElement.currentTime);
+                  if (currentTime % 5 === 0 && currentTime !== lastProgressUpdate) {
+                    lastProgressUpdate = currentTime;
+                    sendMessage('video-progress', {
+                      currentTime: currentTime,
+                      duration: videoElement.duration,
+                      percentage: (currentTime / videoElement.duration * 100).toFixed(2),
+                      timestamp: Date.now()
                     });
-
-                    // For React Native WebView (Android + iOS)
-                    if (window.ReactNativeWebView) {
-                        window.ReactNativeWebView.postMessage(payload);
+                  }
+                });
+                
+                videoElement.addEventListener('seeked', () => {
+                  sendMessage('video-seeked', {
+                    currentTime: videoElement.currentTime,
+                    timestamp: Date.now()
+                  });
+                });
+              }
+            }, 100);
+            
+            setTimeout(() => clearInterval(findVideo), 10000);
+          }
+          
+          // Track DOM clicks to catch interactions
+          function setupClickTracking() {
+            document.addEventListener('click', (event) => {
+              const target = event.target;
+              
+              // Check if clicked on an interaction element
+              if (target.closest('.h5p-interaction') || 
+                  target.closest('.h5p-question') ||
+                  target.closest('.h5p-summary-interaction') ||
+                  target.classList.contains('h5p-joubelui-button')) {
+                
+                interactionCount++;
+                console.log('%c 👆 DOM Click on Interaction!', 'color: orange; font-weight: bold;');
+                
+                sendMessage('interaction-clicked', {
+                  interactionNumber: interactionCount,
+                  className: target.className,
+                  tagName: target.tagName,
+                  timestamp: Date.now()
+                });
+              }
+            }, true); // Use capture phase to catch early
+          }
+          
+          // Watch for overlay/popup appearances (interactions appearing)
+          function setupMutationObserver() {
+            const observer = new MutationObserver((mutations) => {
+              mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                  if (node.nodeType === 1) { // Element node
+                    // Check for interaction overlays
+                    if (node.classList && (
+                        node.classList.contains('h5p-interaction') ||
+                        node.classList.contains('h5p-question-popup') ||
+                        node.classList.contains('h5p-summary-popup') ||
+                        node.classList.contains('h5p-crossroads')
+                    )) {
+                      console.log('%c 🎯 Interaction Appeared!', 'color: cyan; font-weight: bold;');
+                      sendMessage('interaction-appeared', {
+                        type: Array.from(node.classList).join(' '),
+                        timestamp: Date.now(),
+                        videoTime: videoElement ? videoElement.currentTime : null
+                      });
                     }
+                  }
+                });
+              });
+            });
+            
+            observer.observe(document.body, {
+              childList: true,
+              subtree: true
+            });
+          }
+          
+          // Initialize H5P listeners
+          function initH5PListeners() {
+            if (typeof H5P === 'undefined') {
+              setTimeout(initH5PListeners, 100);
+              return;
+            }
+            
+            console.log('%c ✅ H5P loaded! Registering all listeners...', 'color: green; font-weight: bold; font-size: 14px;');
+            
+            // Track ALL xAPI events with detailed logging
+            H5P.externalDispatcher.on('xAPI', function(event) {
+              const statement = event.data.statement;
+              const verb = statement.verb.display['en-US'] || statement.verb.id.split('/').pop();
+              
+              console.log('%c 🎯 xAPI Event: ' + verb, 'color: red; font-weight: bold; font-size: 12px;');
+              console.log('   Full statement:', statement);
+              
+              // Extract useful information
+              const eventData = {
+                verb: verb,
+                verbId: statement.verb.id,
+                objectName: statement.object.definition?.name?.['en-US'] || 'Unknown',
+                objectType: statement.object.definition?.type,
+                result: statement.result,
+                timestamp: statement.timestamp,
+                context: statement.context,
+                fullStatement: statement
+              };
+              
+              // Special handling for different verbs
+              if (verb === 'interacted') {
+                console.log('%c 👉 USER CLICKED AN INTERACTION!', 'background: yellow; color: black; font-weight: bold; padding: 4px;');
+              } else if (verb === 'answered') {
+                console.log('%c ✏️ USER ANSWERED A QUESTION!', 'background: green; color: white; font-weight: bold; padding: 4px;');
+                console.log('   Response:', statement.result?.response);
+              } else if (verb === 'completed') {
+                console.log('%c ✅ USER COMPLETED CONTENT!', 'background: blue; color: white; font-weight: bold; padding: 4px;');
+              }
+              
+              sendMessage('xAPI', eventData);
+            });
+            
+            // Track content initialization
+            H5P.externalDispatcher.on('initialized', function() {
+              console.log('%c 🎬 H5P Content Initialized', 'color: green; font-weight: bold;');
+              sendMessage('h5p-initialized', { 
+                contentId: '${contentId}',
+                timestamp: Date.now()
+              });
+              
+              setupVideoTracking();
+              setupClickTracking();
+              setupMutationObserver();
+            });
+            
+            // Track all other H5P events
+            const eventsToTrack = ['interacted', 'completed', 'answered', 'progressed', 'attempted'];
+            
+            eventsToTrack.forEach(eventName => {
+              H5P.externalDispatcher.on(eventName, function(event) {
+                console.log('%c 📢 H5P Event: ' + eventName, 'color: purple;', event);
+                sendMessage('h5p-' + eventName, {
+                  eventType: eventName,
+                  data: event.data,
+                  timestamp: Date.now()
+                });
+              });
+            });
+            
+            console.log('%c 🎉 All listeners registered successfully!', 'color: green; font-weight: bold; font-size: 14px;');
+          }
+          
+          // Start everything
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initH5PListeners);
+          } else {
+            initH5PListeners();
+          }
+        })();
+      </script>
+    `;
 
-                    // For Web (iframe → parent window)
-                    if (window.parent && window.parent !== window) {
-                        window.parent.postMessage(payload, "*");
-                    }
-                            
-                    });
-                })();
-            </script>
-        `;
-
-    // Basic HTML Template
     const html = `
-            <!doctype html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <title>H5P Player</title>
-                <script src="https://code.jquery.com/jquery-1.12.4.min.js"></script>
-
-                
-                <!-- H5P Core Scripts & Styles -->
-                ${(playerModel.styles || []).map(s => `<link rel="stylesheet" href="${s}">`).join('\n')}
-                ${(playerModel.scripts || []).map(s => `<script src="${s}"></script>`).join('\n')}
-            </head>
-            <body>
-                <div class="h5p-content" data-content-id="${contentId}"></div>
-                
-                <script>
-                    // H5P Integration Object
-                    window.H5PIntegration = ${JSON.stringify(playerModel.integration, null, 2)};
-                </script>
-                
-                ${bridgeScript}
-            </body>
-            </html>
-        `;
+      <!doctype html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>H5P Player</title>
+        
+        ${(playerModel.styles || []).map(s => `<link rel="stylesheet" href="${s}">`).join('\n')}
+        
+        <script src="https://code.jquery.com/jquery-1.12.4.min.js"></script>
+        
+        ${(playerModel.scripts || []).map(s => `<script src="${s}"></script>`).join('\n')}
+        
+        <style>
+          body { 
+            margin: 0; 
+            padding: 0; 
+            background: #000;
+          }
+          .h5p-content { 
+            width: 100%; 
+            height: 100vh;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="h5p-content" data-content-id="${contentId}"></div>
+        
+        <script>
+          window.H5PIntegration = ${JSON.stringify(playerModel.integration, null, 2)};
+        </script>
+        
+        ${bridgeScript}
+      </body>
+      </html>
+    `;
 
     res.send(html);
   } catch (error) {
-    console.error(error);
+    console.error('Error rendering H5P content:', error);
     res.status(500).send('Error rendering content: ' + error.message);
   }
 });
 
-
-// Serve Mock Mobile Client
 app.get('/mock', (req, res) => {
   res.sendFile(path.resolve(__dirname, '../mock-mobile.html'));
 });
